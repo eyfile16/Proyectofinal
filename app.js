@@ -54,7 +54,12 @@ app.use('/api/auth', authRoutes);
 app.use('/api/debug', debugRoutes);
 app.use('/api/pedidos', pedidosRoutes);
 app.use('/api/comentarios', comentariosRoutes);
+app.use(express.static(path.join(__dirname, 'public')));
 
+// Ruta catch-all para manejar rutas del frontend (Vue Router)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 const PORT = process.env.PORT || 4800;
 const server = app.listen(PORT, () => {
   console.log(`Servidor corriendo en el puerto ${PORT}`);
