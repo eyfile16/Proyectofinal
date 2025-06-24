@@ -20,15 +20,17 @@ router.use((req, res, next) => {
   next();
 });
 
-// Rutas para productos
+
+
+// Rutas
 router.get('/', productosController.obtenerTodos);
 router.get('/:id', productosController.obtenerPorId);
 router.post('/', productosController.crear);
 router.put('/:id', productosController.actualizar);
 router.delete('/:id', productosController.eliminar);
 
-// Eliminar estas rutas relacionadas con comentarios
-// router.post('/:id/comentario', async (req, res) => { ... });
-// router.get('/:id/comentarios', async (req, res) => { ... });
+// Rutas para comentarios
+router.post('/:id/comentario', productosController.agregarComentario);
+router.get('/:id/comentarios', productosController.obtenerComentarios);
 
 module.exports = router;

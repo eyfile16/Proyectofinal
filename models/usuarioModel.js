@@ -27,6 +27,11 @@ const usuarioSchema = new Schema({
     type: String,
     default: null
   },
+  avatarPredeterminado: {
+    type: String,
+    enum: ['avatar1', 'avatar2', 'avatar3', 'avatar4', 'avatar5'],
+    default: 'avatar1'
+  },
   fechaRegistro: {
     type: Date,
     default: Date.now

@@ -15,6 +15,10 @@ router.put('/actualizar', validarJWT, usuarioController.actualizarPerfil);
 // Esta ruta será accesible como /api/usuarios/eliminar
 router.delete('/eliminar', validarJWT, usuarioController.eliminarCuenta);
 
+// Ruta para obtener reseñas/comentarios de un usuario
+// Esta ruta será accesible como /api/usuarios/{id}/resenas
+router.get('/:id/resenas', usuarioController.obtenerResenasUsuario);
+
 module.exports = router;
 
 

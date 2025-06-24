@@ -12,7 +12,8 @@ const categoriasRoutes = require('./routes/categorias');
 const authRoutes = require('./routes/authRoutes');
 const debugRoutes = require('./routes/debug');
 const pedidosRoutes = require('./routes/pedidos');
- const comentariosRoutes = require('./routes/comentarios');
+const comentariosRoutes = require('./routes/comentarios');
+const usuarioRoutes = require('./routes/usuarioRoutes');
 
 // Crear la aplicación Express
 const app = express();
@@ -54,6 +55,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/debug', debugRoutes);
 app.use('/api/pedidos', pedidosRoutes);
 app.use('/api/comentarios', comentariosRoutes);
+app.use('/api/usuarios', usuarioRoutes);
+
 const PORT = process.env.PORT || 4800;
 const server = app.listen(PORT, () => {
   console.log(`Servidor corriendo en el puerto ${PORT}`);

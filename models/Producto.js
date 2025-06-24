@@ -1,4 +1,3 @@
-
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
 
@@ -29,7 +28,6 @@ const ProductoSchema = new Schema({
     type: Schema.Types.ObjectId,
     ref: 'Categoria'
   },
-<<<<<<< HEAD
   comentarios: [{
     usuario: String,
     texto: String,
@@ -50,29 +48,6 @@ const ProductoSchema = new Schema({
     default: 0,
     min: 0
   }
-=======
-  // Eliminar estos campos
-  // comentarios: [{
-  //   usuario: String,
-  //   texto: String,
-  //   calificacion: Number,
-  //   fecha: {
-  //     type: Date,
-  //     default: Date.now
-  //   }
-  // }],
-  // calificacion: {
-  //   type: Number,
-  //   default: 0,
-  //   min: 0,
-  //   max: 5
-  // },
-  // cantidadCalificaciones: {
-  //   type: Number,
-  //   default: 0,
-  //   min: 0
-  // }
->>>>>>> 5818a314037a582bdd1a48ece3d4080c85d5acfb
 }, {
   timestamps: true,
   versionKey: false

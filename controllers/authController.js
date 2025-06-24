@@ -41,14 +41,15 @@ exports.registrar = async (req, res) => {
     await usuario.save();
     
     // Respuesta exitosa
-    res.status(201).json({ 
+    res.status(201).json({
       msg: 'Usuario registrado correctamente',
       usuario: {
         id: usuario._id,
         nombre: usuario.nombre,
         email: usuario.email,
         rol: usuario.rol,
-        imagenPerfil: usuario.imagenPerfil
+        imagenPerfil: usuario.imagenPerfil,
+        avatarPredeterminado: usuario.avatarPredeterminado
       }
     });
   } catch (error) {
@@ -94,16 +95,17 @@ exports.login = async (req, res) => {
     console.log('Token generado:', token ? 'Sí' : 'No');
     
     // Respuesta exitosa
-    return res.status(200).json({ 
-      token, 
+    return res.status(200).json({
+      token,
       usuario: {
         _id: usuario._id,
         nombre: usuario.nombre,
         email: usuario.email,
         rol: usuario.rol,
-        imagenPerfil: usuario.imagenPerfil
+        imagenPerfil: usuario.imagenPerfil,
+        avatarPredeterminado: usuario.avatarPredeterminado
       },
-      msg: 'Login exitoso' 
+      msg: 'Login exitoso'
     });
   } catch (error) {
     console.error('Error detallado en el login:', error);

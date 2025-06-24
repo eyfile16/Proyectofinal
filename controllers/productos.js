@@ -43,6 +43,30 @@ exports.crear = async (req, res) => {
     
     console.log('Datos recibidos:', JSON.stringify(productoData).substring(0, 200) + '...');
     
+    // Validar campos obligatorios
+    const camposRequeridos = ['nombre', 'precio', 'categoria'];
+    const camposFaltantes = camposRequeridos.filter(campo => !productoData[campo]);
+    
+    if (camposFaltantes.length > 0) {
+      return res.status(400).json({
+        error: 'Faltan campos obligatorios',
+        detalles: camposFaltantes.reduce((obj, campo) => {
+          obj[campo] = `El campo ${campo} es obligatorio`;
+          return obj;
+        }, {}),
+        mensaje: `Los siguientes campos son obligatorios: ${camposFaltantes.join(', ')}`
+      });
+    }
+    
+    // Validar tipos de datos
+    if (isNaN(Number(productoData.precio))) {
+      return res.status(400).json({
+        error: 'Tipo de dato incorrecto',
+        detalles: { precio: 'El precio debe ser un número' },
+        mensaje: 'El precio debe ser un número válido'
+      });
+    }
+    
     // Procesar imagen principal si existe
     if (productoData.imagen && productoData.imagen.includes('base64')) {
       console.log('Procesando imagen principal...');
@@ -249,5 +273,168 @@ exports.eliminar = async (req, res) => {
   } catch (error) {
     console.error('Error al eliminar producto:', error);
     res.status(500).json({ error: 'Error al eliminar producto' });
+  }
+};
+
+// Mejorar el controlador para agregar comentarios
+exports.agregarComentario = async (req, res) => {
+  try {
+    console.log('Recibiendo solicitud para agregar comentario');
+    console.log('Parámetros:', req.params);
+    console.log('Cuerpo de la solicitud:', req.body);
+    
+    const { id } = req.params;
+    const { usuario, texto, calificacion, fecha } = req.body;
+    
+    // Basic validations
+    if (!usuario || !texto || calificacion === undefined) {
+      console.log('Validación fallida:', { usuario, texto, calificacion });
+      return res.status(400).json({ 
+        mensaje: 'Todos los campos son requeridos',
+        camposFaltantes: {
+          usuario: !usuario,
+          texto: !texto,
+          calificacion: calificacion === undefined
+        }
+      });
+    }
+    
+    // Find the product
+    console.log('Buscando producto con ID:', id);
+    const Producto = require('../models/Producto'); // Asegurarse de importar el modelo
+
+    // Verificar que el producto existe
+    const productoExiste = await Producto.findById(id);
+    if (!productoExiste) {
+      console.log('Producto no encontrado con ID:', id);
+      return res.status(404).json({ mensaje: 'Producto no encontrado', id });
+    }
+
+    console.log('Producto encontrado:', productoExiste.nombre);
+
+    // Create the comment
+    const mongoose = require('mongoose');
+    const nuevoComentario = {
+      _id: new mongoose.Types.ObjectId(),
+      usuario,
+      texto,
+      calificacion: Number(calificacion),
+      fecha: fecha ? new Date(fecha) : new Date()
+    };
+
+    console.log('Nuevo comentario creado:', nuevoComentario);
+
+    // Agregar el comentario usando operación nativa de MongoDB para evitar validación
+    const resultado = await mongoose.connection.db.collection('productos').updateOne(
+      { _id: new mongoose.Types.ObjectId(id) },
+      { $push: { comentarios: nuevoComentario } }
+    );
+
+    // Recalcular calificación promedio usando operación nativa
+    if (resultado && resultado.modifiedCount > 0) {
+      // Obtener el producto actualizado usando operación nativa
+      const productoActualizado = await mongoose.connection.db.collection('productos').findOne(
+        { _id: new mongoose.Types.ObjectId(id) }
+      );
+
+      if (productoActualizado && productoActualizado.comentarios && productoActualizado.comentarios.length > 0) {
+        const comentariosValidos = productoActualizado.comentarios.filter(c => c.calificacion && !isNaN(c.calificacion));
+        const totalCalificaciones = comentariosValidos.reduce((sum, c) => sum + Number(c.calificacion), 0);
+        const calificacionPromedio = totalCalificaciones / comentariosValidos.length;
+
+        // Actualizar calificación promedio usando operación nativa
+        await mongoose.connection.db.collection('productos').updateOne(
+          { _id: new mongoose.Types.ObjectId(id) },
+          {
+            $set: {
+              calificacion: calificacionPromedio,
+              cantidadCalificaciones: comentariosValidos.length
+            }
+          }
+        );
+
+        console.log('Calificación promedio actualizada:', calificacionPromedio);
+      }
+    }
+
+    console.log('Comentario agregado exitosamente');
+    
+    // Obtener el producto actualizado para la respuesta usando operación nativa
+    const productoFinal = await mongoose.connection.db.collection('productos').findOne(
+      { _id: new mongoose.Types.ObjectId(id) }
+    );
+
+    res.status(201).json({
+      mensaje: 'Comentario agregado con éxito',
+      comentario: nuevoComentario,
+      calificacionPromedio: productoFinal.calificacion || 0,
+      cantidadCalificaciones: productoFinal.cantidadCalificaciones || 0
+    });
+  } catch (error) {
+    console.error('Error al agregar comentario:', error);
+    console.error('Stack trace:', error.stack);
+    res.status(500).json({ 
+      mensaje: 'Error al agregar comentario', 
+      error: error.message,
+      stack: error.stack
+    });
+  }
+};
+
+// Obtener comentarios de un producto
+exports.obtenerComentarios = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    console.log('Obteniendo comentarios para producto:', id);
+
+    // Usar operación nativa de MongoDB para evitar problemas de validación
+    const mongoose = require('mongoose');
+    const producto = await mongoose.connection.db.collection('productos').findOne(
+      { _id: new mongoose.Types.ObjectId(id) }
+    );
+
+    if (!producto) {
+      return res.status(404).json({ mensaje: 'Producto no encontrado' });
+    }
+
+    console.log('Producto encontrado:', producto.nombre);
+
+    // Limpiar comentarios con fechas inválidas
+    let comentariosLimpios = [];
+    if (producto.comentarios && Array.isArray(producto.comentarios)) {
+      comentariosLimpios = producto.comentarios.filter(comentario => {
+        // Filtrar comentarios con fechas válidas
+        if (comentario.fecha) {
+          if (typeof comentario.fecha === 'string') {
+            // Intentar parsear fechas string
+            try {
+              const fechaParseada = new Date(comentario.fecha);
+              if (!isNaN(fechaParseada.getTime())) {
+                comentario.fecha = fechaParseada.toISOString();
+                return true;
+              }
+            } catch (error) {
+              console.log('Filtrando comentario con fecha inválida:', comentario.fecha);
+              return false;
+            }
+          } else if (comentario.fecha instanceof Date || comentario.fecha.$date) {
+            return true;
+          }
+        }
+        return comentario.usuario && comentario.texto && comentario.calificacion;
+      });
+    }
+
+    console.log(`Comentarios limpios encontrados: ${comentariosLimpios.length}`);
+
+    res.status(200).json({
+      comentarios: comentariosLimpios,
+      calificacionPromedio: producto.calificacion || 0,
+      cantidadCalificaciones: producto.cantidadCalificaciones || 0
+    });
+  } catch (error) {
+    console.error('Error al obtener comentarios:', error);
+    res.status(500).json({ mensaje: 'Error al obtener comentarios', error: error.message });
   }
 };
