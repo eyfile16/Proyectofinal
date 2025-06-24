@@ -54,7 +54,6 @@ app.use('/api/auth', authRoutes);
 app.use('/api/debug', debugRoutes);
 app.use('/api/pedidos', pedidosRoutes);
 app.use('/api/comentarios', comentariosRoutes);
-
 const PORT = process.env.PORT || 4800;
 const server = app.listen(PORT, () => {
   console.log(`Servidor corriendo en el puerto ${PORT}`);
