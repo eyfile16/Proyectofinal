@@ -12,8 +12,10 @@ const categoriasRoutes = require('./routes/categorias');
 const authRoutes = require('./routes/authRoutes');
 const debugRoutes = require('./routes/debug');
 const pedidosRoutes = require('./routes/pedidos');
-const comentariosRoutes = require('./routes/comentarios');
+
+
 const usuarioRoutes = require('./routes/usuarioRoutes');
+const metodosPagoRoutes = require('./routes/metodosPago');
 
 // Crear la aplicación Express
 const app = express();
@@ -21,6 +23,11 @@ const app = express();
 // Configuración de middleware
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(cors());
+
+// Configuración de la base de datos
+
+
 
 // Configuración de CORS
 app.use(cors({
@@ -54,8 +61,11 @@ app.use('/api/categorias', categoriasRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/debug', debugRoutes);
 app.use('/api/pedidos', pedidosRoutes);
-app.use('/api/comentarios', comentariosRoutes);
+
+
+app.use (express.static ('public'));
 app.use('/api/usuarios', usuarioRoutes);
+app.use('/api/metodos-pago', metodosPagoRoutes);
 
 const PORT = process.env.PORT || 4800;
 const server = app.listen(PORT, () => {

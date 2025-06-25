@@ -6,7 +6,7 @@ const generarJWT = (uid) => {
         const payload = { uid };
         jwt.sign(
             payload,
-            process.env.SECRETORPRIVATEKEY || 'clave_secreta_temporal_para_pruebas',
+            process.env.JWT_SECRET || 'mi_clave_secreta_temporal',
             {
                 expiresIn: "4h",
             },
@@ -24,14 +24,24 @@ const generarJWT = (uid) => {
 
 
 const validarJWT = async (req, res, next) => {
-    const token = req.header("x-token");
+    // Buscar token en x-token o Authorization header
+    let token = req.header("x-token");
+
+    // Si no hay token en x-token, buscar en Authorization header
+    if (!token) {
+        const authHeader = req.header("Authorization");
+        if (authHeader && authHeader.startsWith("Bearer ")) {
+            token = authHeader.substring(7); // Remover "Bearer " del inicio
+        }
+    }
+
     if(!token){
         return res.status(401).json({
             msg: "No hay token en la peticion"
         })
     }
     try {
-        const {uid} = jwt.verify(token, process.env.SECRETORPRIVATEKEY || 'clave_secreta_temporal_para_pruebas')
+        const {uid} = jwt.verify(token, process.env.JWT_SECRET || 'mi_clave_secreta_temporal')
         let user = await Usuario.findById(uid)
         console.log(uid);
         if(!user){

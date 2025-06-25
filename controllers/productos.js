@@ -358,7 +358,7 @@ exports.agregarComentario = async (req, res) => {
     }
 
     console.log('Comentario agregado exitosamente');
-    
+
     // Obtener el producto actualizado para la respuesta usando operación nativa
     const productoFinal = await mongoose.connection.db.collection('productos').findOne(
       { _id: new mongoose.Types.ObjectId(id) }

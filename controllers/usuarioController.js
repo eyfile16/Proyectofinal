@@ -12,6 +12,23 @@ const obtenerTodos = async (req, res) => {
   }
 };
 
+// Obtener un usuario por ID
+const obtenerUsuarioPorId = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const usuario = await Usuario.findById(id);
+
+    if (!usuario) {
+      return res.status(404).json({ mensaje: 'Usuario no encontrado' });
+    }
+
+    res.json(usuario);
+  } catch (error) {
+    console.error('Error al obtener usuario por ID:', error);
+    res.status(500).json({ mensaje: 'Error al obtener usuario' });
+  }
+};
+
 // Actualizar perfil de usuario
 const actualizarPerfil = async (req, res) => {
   try {
@@ -135,6 +152,7 @@ const obtenerResenasUsuario = async (req, res) => {
 
 module.exports = {
   obtenerTodos,
+  obtenerUsuarioPorId,
   actualizarPerfil,
   eliminarCuenta,
   obtenerResenasUsuario
