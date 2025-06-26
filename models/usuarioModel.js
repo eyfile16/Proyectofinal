@@ -35,6 +35,10 @@ const usuarioSchema = new Schema({
   fechaRegistro: {
     type: Date,
     default: Date.now
+  },
+  estado: {
+    type: Boolean,
+    default: true
   }
 });
 

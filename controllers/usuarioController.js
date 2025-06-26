@@ -1,5 +1,40 @@
 // Controlador de usuarios
 const Usuario = require('../models/usuarioModel'); // Cambiado de '../models/Usuario' a '../models/usuarioModel'
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+// Configuración de multer para subida de imágenes
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadPath = path.join(__dirname, '../uploads/avatars');
+    // Crear directorio si no existe
+    if (!fs.existsSync(uploadPath)) {
+      fs.mkdirSync(uploadPath, { recursive: true });
+    }
+    cb(null, uploadPath);
+  },
+  filename: function (req, file, cb) {
+    // Generar nombre único para el archivo
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'avatar-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB máximo
+  },
+  fileFilter: function (req, file, cb) {
+    // Verificar que sea una imagen
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Solo se permiten archivos de imagen'), false);
+    }
+  }
+});
 
 // Obtener todos los usuarios
 const obtenerTodos = async (req, res) => {
@@ -12,20 +47,37 @@ const obtenerTodos = async (req, res) => {
   }
 };
 
+// Obtener un usuario por ID
+const obtenerUsuarioPorId = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const usuario = await Usuario.findById(id);
+
+    if (!usuario) {
+      return res.status(404).json({ mensaje: 'Usuario no encontrado' });
+    }
+
+    res.json(usuario);
+  } catch (error) {
+    console.error('Error al obtener usuario por ID:', error);
+    res.status(500).json({ mensaje: 'Error al obtener usuario' });
+  }
+};
+
 // Actualizar perfil de usuario
 const actualizarPerfil = async (req, res) => {
   try {
     const { _id, ...resto } = req.body;
-    
+
     // Verificar que el usuario existe
     const usuario = await Usuario.findById(_id);
     if (!usuario) {
       return res.status(404).json({ mensaje: 'Usuario no encontrado' });
     }
-    
+
     // Actualizar usuario
     const usuarioActualizado = await Usuario.findByIdAndUpdate(_id, resto, { new: true });
-    
+
     res.json({
       mensaje: 'Usuario actualizado correctamente',
       usuario: usuarioActualizado
@@ -33,6 +85,152 @@ const actualizarPerfil = async (req, res) => {
   } catch (error) {
     console.error('Error al actualizar usuario:', error);
     res.status(500).json({ mensaje: 'Error al actualizar usuario' });
+  }
+};
+
+// Actualizar avatar del usuario
+const actualizarAvatar = async (req, res) => {
+  try {
+    const { avatarPredeterminado } = req.body;
+    const usuarioId = req.usuario._id; // Viene del middleware de autenticación
+
+    console.log('Actualizando avatar para usuario:', usuarioId);
+    console.log('Nuevo avatar:', avatarPredeterminado);
+
+    // Validar que el avatar es válido
+    const avatarsValidos = ['avatar1', 'avatar2', 'avatar3', 'avatar4', 'avatar5'];
+    if (!avatarsValidos.includes(avatarPredeterminado)) {
+      return res.status(400).json({ mensaje: 'Avatar no válido' });
+    }
+
+    // Actualizar el avatar del usuario
+    const usuarioActualizado = await Usuario.findByIdAndUpdate(
+      usuarioId,
+      { avatarPredeterminado },
+      { new: true }
+    ).select('-password'); // Excluir la contraseña de la respuesta
+
+    if (!usuarioActualizado) {
+      return res.status(404).json({ mensaje: 'Usuario no encontrado' });
+    }
+
+    console.log('Avatar actualizado exitosamente');
+
+    res.json({
+      mensaje: 'Avatar actualizado correctamente',
+      usuario: usuarioActualizado
+    });
+  } catch (error) {
+    console.error('Error al actualizar avatar:', error);
+    res.status(500).json({ mensaje: 'Error al actualizar avatar' });
+  }
+};
+
+// Subir imagen de perfil
+const subirImagenPerfil = async (req, res) => {
+  // Usar multer middleware
+  upload.single('imagen')(req, res, async function (err) {
+    if (err) {
+      console.error('Error en multer:', err);
+      return res.status(400).json({ mensaje: err.message });
+    }
+
+    try {
+      const usuarioId = req.usuario._id;
+
+      if (!req.file) {
+        return res.status(400).json({ mensaje: 'No se recibió ningún archivo' });
+      }
+
+      console.log('Subiendo imagen para usuario:', usuarioId);
+      console.log('Archivo recibido:', req.file.filename);
+
+      // Construir URL de la imagen
+      const imagenUrl = `/uploads/avatars/${req.file.filename}`;
+
+      // Obtener usuario actual para eliminar imagen anterior si existe
+      const usuarioActual = await Usuario.findById(usuarioId);
+
+      // Eliminar imagen anterior si existe
+      if (usuarioActual.imagenPerfil) {
+        const imagenAnterior = path.join(__dirname, '../', usuarioActual.imagenPerfil);
+        if (fs.existsSync(imagenAnterior)) {
+          fs.unlinkSync(imagenAnterior);
+          console.log('Imagen anterior eliminada:', imagenAnterior);
+        }
+      }
+
+      // Actualizar usuario con nueva imagen
+      const usuarioActualizado = await Usuario.findByIdAndUpdate(
+        usuarioId,
+        {
+          imagenPerfil: imagenUrl,
+          avatarPredeterminado: null // Limpiar avatar predeterminado
+        },
+        { new: true }
+      ).select('-password');
+
+      if (!usuarioActualizado) {
+        return res.status(404).json({ mensaje: 'Usuario no encontrado' });
+      }
+
+      console.log('Imagen subida exitosamente');
+
+      res.json({
+        mensaje: 'Imagen de perfil actualizada correctamente',
+        usuario: usuarioActualizado
+      });
+
+    } catch (error) {
+      console.error('Error al subir imagen:', error);
+      res.status(500).json({ mensaje: 'Error al subir imagen' });
+    }
+  });
+};
+
+// Eliminar imagen de perfil
+const eliminarImagenPerfil = async (req, res) => {
+  try {
+    const usuarioId = req.usuario._id;
+
+    console.log('Eliminando imagen para usuario:', usuarioId);
+
+    // Obtener usuario actual
+    const usuarioActual = await Usuario.findById(usuarioId);
+
+    if (!usuarioActual) {
+      return res.status(404).json({ mensaje: 'Usuario no encontrado' });
+    }
+
+    // Eliminar archivo físico si existe
+    if (usuarioActual.imagenPerfil) {
+      const imagenPath = path.join(__dirname, '../', usuarioActual.imagenPerfil);
+      if (fs.existsSync(imagenPath)) {
+        fs.unlinkSync(imagenPath);
+        console.log('Archivo de imagen eliminado:', imagenPath);
+      }
+    }
+
+    // Actualizar usuario removiendo la imagen
+    const usuarioActualizado = await Usuario.findByIdAndUpdate(
+      usuarioId,
+      {
+        imagenPerfil: null,
+        avatarPredeterminado: 'avatar1' // Volver al avatar por defecto
+      },
+      { new: true }
+    ).select('-password');
+
+    console.log('Imagen eliminada exitosamente');
+
+    res.json({
+      mensaje: 'Imagen de perfil eliminada correctamente',
+      usuario: usuarioActualizado
+    });
+
+  } catch (error) {
+    console.error('Error al eliminar imagen:', error);
+    res.status(500).json({ mensaje: 'Error al eliminar imagen' });
   }
 };
 
@@ -135,7 +333,11 @@ const obtenerResenasUsuario = async (req, res) => {
 
 module.exports = {
   obtenerTodos,
+  obtenerUsuarioPorId,
   actualizarPerfil,
+  actualizarAvatar,
+  subirImagenPerfil,
+  eliminarImagenPerfil,
   eliminarCuenta,
   obtenerResenasUsuario
 };
