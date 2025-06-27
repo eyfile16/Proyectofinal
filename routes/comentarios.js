@@ -23,4 +23,7 @@ router.post('/:comentarioId/like', validarJWT, comentarioController.toggleLike);
 // Dar dislike/undislike a un comentario (requiere autenticación)
 router.post('/:comentarioId/dislike', validarJWT, comentarioController.toggleDislike);
 
+// NUEVO SISTEMA DE LIKES SIMPLE
+router.post('/:comentarioId/like-simple', validarJWT, comentarioController.darLike);
+
 module.exports = router;
