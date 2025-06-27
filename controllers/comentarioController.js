@@ -1,78 +1,91 @@
 const Producto = require('../models/Producto');
 const Usuario = require('../models/usuarioModel');
 
-// Obtener comentarios de un producto
+// Obtener comentarios de un producto - CON MIGRACIÓN
 const obtenerComentarios = async (req, res) => {
   try {
     const { productoId } = req.params;
+    console.log('🔍 Obteniendo comentarios para producto:', productoId);
 
-    console.log('Obteniendo comentarios para producto:', productoId);
+    const producto = await Producto.findById(productoId);
 
-    // Obtener el producto
-    let producto = await Producto.findById(productoId);
+    // Obtener usuarios manualmente para asegurar que funcione
+    const usuarioIds = producto.comentarios.map(c => c.usuario).filter(Boolean);
+    const usuarios = await Usuario.find({ _id: { $in: usuarioIds } });
+    const usuariosMap = {};
+    usuarios.forEach(u => {
+      usuariosMap[u._id.toString()] = u;
+    });
 
     if (!producto) {
       return res.status(404).json({ mensaje: 'Producto no encontrado' });
     }
 
-    // Hacer populate para obtener datos de usuarios
-    await producto.populate({
-      path: 'comentarios.usuario',
-      select: 'nombre email avatarPredeterminado imagenPerfil',
-      model: 'Usuario'
-    });
+    // NOTA: Migración eliminada - los campos likes/dislikes deben existir en el esquema
 
-    // Filtrar y limpiar comentarios válidos
-    const comentariosValidos = producto.comentarios.filter(comentario => {
-      // Filtrar comentarios con fechas string inválidas
-      if (comentario.fecha && typeof comentario.fecha === 'string') {
-        return false;
+    // MIGRACIÓN AUTOMÁTICA: Agregar likesSimples a comentarios que no lo tienen
+    let needsSave = false;
+    producto.comentarios.forEach(c => {
+      if (c.likesSimples === undefined) { // Solo si realmente no existe
+        c.likesSimples = [];
+        needsSave = true;
       }
-      // Asegurar que tenga texto y calificación
-      return comentario.texto && comentario.calificacion;
     });
 
-    // Asegurar que los comentarios tengan la estructura correcta
-    const comentarios = comentariosValidos.map(comentario => {
-      console.log('Procesando comentario:', {
-        id: comentario._id,
-        usuario: comentario.usuario,
-        texto: comentario.texto,
-        fecha: comentario.fecha,
-        likes: comentario.likes,
-        dislikes: comentario.dislikes
+    if (needsSave) {
+      producto.markModified('comentarios');
+      await producto.save();
+      console.log('🔄 MIGRACIÓN: Campo likesSimples agregado a comentarios');
+    }
+
+    const comentarios = producto.comentarios
+      .filter(c => c.usuario && c.texto && c.calificacion)
+      .map(c => {
+        // Asegurar que likes y dislikes existen
+        if (!c.likes) c.likes = [];
+        if (!c.dislikes) c.dislikes = [];
+        if (!c.likesSimples) c.likesSimples = []; // ASEGURAR CAMPO
+
+        const likesCount = c.likes.length;
+        const dislikesCount = c.dislikes.length;
+        const likesSimpleCount = c.likesSimples.length;
+        const usuario = usuariosMap[c.usuario.toString()];
+
+        console.log(`❤️ ${c._id}: likesSimples=${likesSimpleCount} likes`);
+        console.log(`👤 Usuario: ${usuario ? usuario.nombre : 'Usuario no encontrado'}`);
+        console.log(`🔍 Datos: likesSimples=${JSON.stringify(c.likesSimples)}`);
+
+        return {
+          _id: c._id,
+          texto: c.texto,
+          calificacion: c.calificacion,
+          fecha: c.fecha,
+          fechaEdicion: c.fechaEdicion,
+          likes: c.likes,
+          dislikes: c.dislikes,
+          likesSimples: c.likesSimples || [], // NUEVO CAMPO
+          usuario: usuario ? {
+            _id: usuario._id,
+            nombre: usuario.nombre,
+            email: usuario.email,
+            avatarPredeterminado: usuario.avatarPredeterminado,
+            imagenPerfil: usuario.imagenPerfil
+          } : {
+            _id: c.usuario,
+            nombre: 'Usuario no encontrado',
+            email: '',
+            avatarPredeterminado: 'avatar1',
+            imagenPerfil: null
+          }
+        };
       });
 
-      return {
-        _id: comentario._id,
-        texto: comentario.texto,
-        calificacion: comentario.calificacion,
-        fecha: comentario.fecha,
-        fechaEdicion: comentario.fechaEdicion,
-        likes: comentario.likes || [],
-        dislikes: comentario.dislikes || [],
-        usuario: comentario.usuario ? {
-          _id: comentario.usuario._id,
-          nombre: comentario.usuario.nombre,
-          email: comentario.usuario.email,
-          avatarPredeterminado: comentario.usuario.avatarPredeterminado,
-          imagenPerfil: comentario.usuario.imagenPerfil
-        } : {
-          _id: null,
-          nombre: 'Usuario anónimo',
-          email: null,
-          avatarPredeterminado: null,
-          imagenPerfil: null
-        }
-      };
-    });
-
-    console.log(`Comentarios encontrados: ${comentarios.length}`);
-
+    console.log('✅ Comentarios encontrados:', comentarios.length);
     res.json({ comentarios });
+
   } catch (error) {
-    console.error('Error al obtener comentarios:', error);
-    res.status(500).json({ mensaje: 'Error al obtener comentarios' });
+    console.error('❌ Error al obtener comentarios:', error);
+    res.status(500).json({ mensaje: 'Error interno del servidor' });
   }
 };
 
@@ -163,50 +176,50 @@ const editarComentario = async (req, res) => {
     const { comentarioId } = req.params;
     const { texto, calificacion } = req.body;
     const usuarioId = req.usuario._id;
-    
+
     console.log('Editando comentario:', { comentarioId, texto, calificacion, usuarioId });
-    
+
     // Validar datos
     if (!texto || !calificacion) {
       return res.status(400).json({ mensaje: 'Faltan datos requeridos' });
     }
-    
+
     if (calificacion < 1 || calificacion > 5) {
       return res.status(400).json({ mensaje: 'La calificación debe estar entre 1 y 5' });
     }
-    
+
     // Buscar el producto que contiene el comentario
     let producto = await Producto.findOne({ 'comentarios._id': comentarioId });
     if (!producto) {
       return res.status(404).json({ mensaje: 'Comentario no encontrado' });
     }
-    
+
     // Encontrar el comentario específico
     const comentario = producto.comentarios.id(comentarioId);
     if (!comentario) {
       return res.status(404).json({ mensaje: 'Comentario no encontrado' });
     }
-    
+
     // Verificar que el usuario sea el propietario del comentario
     if (comentario.usuario.toString() !== usuarioId.toString()) {
       return res.status(403).json({ mensaje: 'No tienes permiso para editar este comentario' });
     }
-    
+
     // Actualizar el comentario
     comentario.texto = texto.trim();
     comentario.calificacion = parseInt(calificacion);
     comentario.fechaEdicion = new Date();
-    
+
     await producto.save();
-    
+
     // Obtener el comentario actualizado con datos del usuario
     const productoActualizado = await Producto.findById(producto._id)
       .populate('comentarios.usuario', 'nombre email avatarPredeterminado imagenPerfil');
-    
+
     const comentarioActualizado = productoActualizado.comentarios.id(comentarioId);
-    
+
     console.log('Comentario editado exitosamente');
-    
+
     res.json({
       mensaje: 'Comentario editado exitosamente',
       comentario: {
@@ -237,32 +250,32 @@ const eliminarComentario = async (req, res) => {
   try {
     const { comentarioId } = req.params;
     const usuarioId = req.usuario._id;
-    
+
     console.log('Eliminando comentario:', { comentarioId, usuarioId });
-    
+
     // Buscar el producto que contiene el comentario
     let producto = await Producto.findOne({ 'comentarios._id': comentarioId });
     if (!producto) {
       return res.status(404).json({ mensaje: 'Comentario no encontrado' });
     }
-    
+
     // Encontrar el comentario específico
     const comentario = producto.comentarios.id(comentarioId);
     if (!comentario) {
       return res.status(404).json({ mensaje: 'Comentario no encontrado' });
     }
-    
+
     // Verificar que el usuario sea el propietario del comentario
     if (comentario.usuario.toString() !== usuarioId.toString()) {
       return res.status(403).json({ mensaje: 'No tienes permiso para eliminar este comentario' });
     }
-    
+
     // Eliminar el comentario
     producto.comentarios.pull(comentarioId);
     await producto.save();
-    
+
     console.log('Comentario eliminado exitosamente');
-    
+
     res.json({ mensaje: 'Comentario eliminado exitosamente' });
   } catch (error) {
     console.error('Error al eliminar comentario:', error);
@@ -270,16 +283,16 @@ const eliminarComentario = async (req, res) => {
   }
 };
 
-// Toggle like en comentario
+// Toggle like - VERSIÓN SIMPLE QUE FUNCIONA
 const toggleLike = async (req, res) => {
   try {
     const { comentarioId } = req.params;
     const usuarioId = req.usuario._id;
 
-    console.log('Toggle like en comentario:', { comentarioId, usuarioId });
+    console.log('🚀 LIKE SIMPLE:', { comentarioId, usuarioId: usuarioId.toString() });
 
-    // Primero verificar si el comentario existe
-    let producto = await Producto.findOne({ 'comentarios._id': comentarioId });
+    // Buscar el producto
+    const producto = await Producto.findOne({ 'comentarios._id': comentarioId });
     if (!producto) {
       return res.status(404).json({ mensaje: 'Comentario no encontrado' });
     }
@@ -289,89 +302,64 @@ const toggleLike = async (req, res) => {
       return res.status(404).json({ mensaje: 'Comentario no encontrado' });
     }
 
+    // Inicializar arrays si no existen
+    if (!comentario.likes) comentario.likes = [];
+    if (!comentario.dislikes) comentario.dislikes = [];
 
-
-    // Verificar si el usuario ya dio like (inicializar si no existe)
-    const likes = comentario.likes || [];
-    const yaLike = likes.some(id => id.toString() === usuarioId.toString());
-
-    let updateResult;
-    let accion;
+    // Toggle like
+    const yaLike = comentario.likes.some(id => id.toString() === usuarioId.toString());
 
     if (yaLike) {
-      // Quitar like usando operación atómica
-      updateResult = await Producto.updateOne(
-        { 'comentarios._id': comentarioId },
-        {
-          $pull: { 'comentarios.$.likes': usuarioId }
-        }
-      );
-      accion = 'removed';
-      console.log('Like removido - usuario tenía like');
+      // Quitar like
+      comentario.likes = comentario.likes.filter(id => id.toString() !== usuarioId.toString());
+      console.log('✅ Like removido');
     } else {
-      // Agregar like y quitar dislike usando operación atómica
-      updateResult = await Producto.updateOne(
-        { 'comentarios._id': comentarioId },
-        {
-          $addToSet: { 'comentarios.$.likes': usuarioId },
-          $pull: { 'comentarios.$.dislikes': usuarioId }
-        }
-      );
-      accion = 'added';
-      console.log('Like agregado - usuario no tenía like');
+      // Agregar like y quitar dislike
+      comentario.likes.push(usuarioId);
+      comentario.dislikes = comentario.dislikes.filter(id => id.toString() !== usuarioId.toString());
+      console.log('✅ Like agregado');
     }
 
-    console.log('Resultado de actualización:', updateResult);
+    // Guardar con markModified para forzar el guardado
+    producto.markModified('comentarios');
+    await producto.save();
+    console.log('✅ Producto guardado con markModified');
 
-    // Obtener el comentario actualizado para devolver los conteos correctos
-    const productoActualizado = await Producto.findOne({ 'comentarios._id': comentarioId });
-    let comentarioActualizado = productoActualizado.comentarios.id(comentarioId);
+    // Verificar que se guardó correctamente
+    const verificacion = await Producto.findOne({ 'comentarios._id': comentarioId });
+    const comentarioVerif = verificacion.comentarios.id(comentarioId);
+    console.log(`🔍 VERIFICACIÓN: likes guardados=${comentarioVerif.likes ? comentarioVerif.likes.length : 0}`);
 
-    // Asegurar que los arrays existen y tienen valores por defecto
-    if (!comentarioActualizado.likes || comentarioActualizado.likes === undefined) {
-      comentarioActualizado.likes = [];
-    }
-    if (!comentarioActualizado.dislikes || comentarioActualizado.dislikes === undefined) {
-      comentarioActualizado.dislikes = [];
-    }
-
-    console.log('Comentario actualizado:', {
-      id: comentarioActualizado._id,
-      likes: comentarioActualizado.likes,
-      dislikes: comentarioActualizado.dislikes,
-      likesLength: comentarioActualizado.likes ? comentarioActualizado.likes.length : 0,
-      dislikesLength: comentarioActualizado.dislikes ? comentarioActualizado.dislikes.length : 0
-    });
-
-    const userLiked = comentarioActualizado.likes && comentarioActualizado.likes.some(id => id.toString() === usuarioId.toString());
-    const userDisliked = comentarioActualizado.dislikes && comentarioActualizado.dislikes.some(id => id.toString() === usuarioId.toString());
+    const userLiked = comentario.likes.some(id => id.toString() === usuarioId.toString());
+    const userDisliked = comentario.dislikes.some(id => id.toString() === usuarioId.toString());
 
     const response = {
-      mensaje: `Like ${accion === 'added' ? 'agregado' : 'removido'} exitosamente`,
-      likes: comentarioActualizado.likes ? comentarioActualizado.likes.length : 0,
-      dislikes: comentarioActualizado.dislikes ? comentarioActualizado.dislikes.length : 0,
-      userLiked: userLiked || false,
-      userDisliked: userDisliked || false
+      mensaje: yaLike ? 'Like removido' : 'Like agregado',
+      likes: comentario.likes.length,
+      dislikes: comentario.dislikes.length,
+      userLiked,
+      userDisliked
     };
 
-    console.log('Respuesta enviada:', response);
+    console.log('✅ RESPUESTA SIMPLE:', response);
     res.json(response);
+
   } catch (error) {
-    console.error('Error al toggle like:', error);
-    res.status(500).json({ mensaje: 'Error al procesar like' });
+    console.error('❌ Error:', error);
+    res.status(500).json({ mensaje: 'Error interno del servidor' });
   }
 };
 
-// Toggle dislike en comentario
+// Toggle dislike en comentario - VERSIÓN SIMPLE QUE FUNCIONA
 const toggleDislike = async (req, res) => {
   try {
     const { comentarioId } = req.params;
     const usuarioId = req.usuario._id;
 
-    console.log('Toggle dislike en comentario:', { comentarioId, usuarioId });
+    console.log('🔥 TOGGLE DISLIKE SIMPLE:', { comentarioId, usuarioId: usuarioId.toString() });
 
-    // Primero verificar si el comentario existe
-    let producto = await Producto.findOne({ 'comentarios._id': comentarioId });
+    // Buscar el producto que contiene el comentario
+    const producto = await Producto.findOne({ 'comentarios._id': comentarioId });
     if (!producto) {
       return res.status(404).json({ mensaje: 'Comentario no encontrado' });
     }
@@ -381,76 +369,94 @@ const toggleDislike = async (req, res) => {
       return res.status(404).json({ mensaje: 'Comentario no encontrado' });
     }
 
+    // Asegurar que los arrays existen
+    if (!comentario.likes) comentario.likes = [];
+    if (!comentario.dislikes) comentario.dislikes = [];
 
-
-    // Verificar si el usuario ya dio dislike (inicializar si no existe)
-    const dislikes = comentario.dislikes || [];
-    const yaDislike = dislikes.some(id => id.toString() === usuarioId.toString());
-
-    let updateResult;
-    let accion;
+    // Verificar si el usuario ya dio dislike
+    const yaDislike = comentario.dislikes.some(id => id.toString() === usuarioId.toString());
 
     if (yaDislike) {
-      // Quitar dislike usando operación atómica
-      updateResult = await Producto.updateOne(
-        { 'comentarios._id': comentarioId },
-        {
-          $pull: { 'comentarios.$.dislikes': usuarioId }
-        }
-      );
-      accion = 'removed';
-      console.log('Dislike removido');
+      // Quitar dislike
+      comentario.dislikes = comentario.dislikes.filter(id => id.toString() !== usuarioId.toString());
+      console.log('✅ Dislike removido');
     } else {
-      // Agregar dislike y quitar like usando operación atómica
-      updateResult = await Producto.updateOne(
-        { 'comentarios._id': comentarioId },
-        {
-          $addToSet: { 'comentarios.$.dislikes': usuarioId },
-          $pull: { 'comentarios.$.likes': usuarioId }
-        }
-      );
-      accion = 'added';
-      console.log('Dislike agregado');
+      // Agregar dislike y quitar like si existe
+      comentario.dislikes.push(usuarioId);
+      comentario.likes = comentario.likes.filter(id => id.toString() !== usuarioId.toString());
+      console.log('✅ Dislike agregado');
     }
 
-    console.log('Resultado de actualización:', updateResult);
+    // Guardar el producto
+    await producto.save();
+    console.log('✅ Producto guardado');
 
-    // Obtener el comentario actualizado para devolver los conteos correctos
-    const productoActualizado = await Producto.findOne({ 'comentarios._id': comentarioId });
-    let comentarioActualizado = productoActualizado.comentarios.id(comentarioId);
-
-    // Asegurar que los arrays existen y tienen valores por defecto
-    if (!comentarioActualizado.likes || comentarioActualizado.likes === undefined) {
-      comentarioActualizado.likes = [];
-    }
-    if (!comentarioActualizado.dislikes || comentarioActualizado.dislikes === undefined) {
-      comentarioActualizado.dislikes = [];
-    }
-
-    console.log('Comentario actualizado:', {
-      id: comentarioActualizado._id,
-      likes: comentarioActualizado.likes,
-      dislikes: comentarioActualizado.dislikes,
-      likesLength: comentarioActualizado.likes ? comentarioActualizado.likes.length : 0,
-      dislikesLength: comentarioActualizado.dislikes ? comentarioActualizado.dislikes.length : 0
-    });
-
-    const userLiked = comentarioActualizado.likes && comentarioActualizado.likes.some(id => id.toString() === usuarioId.toString());
-    const userDisliked = comentarioActualizado.dislikes && comentarioActualizado.dislikes.some(id => id.toString() === usuarioId.toString());
+    const userLiked = comentario.likes.some(id => id.toString() === usuarioId.toString());
+    const userDisliked = comentario.dislikes.some(id => id.toString() === usuarioId.toString());
 
     const response = {
-      mensaje: `Dislike ${accion === 'added' ? 'agregado' : 'removido'} exitosamente`,
-      likes: comentarioActualizado.likes ? comentarioActualizado.likes.length : 0,
-      dislikes: comentarioActualizado.dislikes ? comentarioActualizado.dislikes.length : 0,
-      userLiked: userLiked || false,
-      userDisliked: userDisliked || false
+      mensaje: yaDislike ? 'Dislike removido exitosamente' : 'Dislike agregado exitosamente',
+      likes: comentario.likes.length,
+      dislikes: comentario.dislikes.length,
+      userLiked,
+      userDisliked
     };
 
-    console.log('Respuesta enviada:', response);
+    console.log('✅ RESPUESTA SIMPLE:', response);
     res.json(response);
+
   } catch (error) {
-    console.error('Error al toggle dislike:', error);
-    res.status(500).json({ mensaje: 'Error al procesar dislike' });
+    console.error('❌ Error al procesar dislike:', error);
+    res.status(500).json({ mensaje: 'Error interno del servidor' });
+  }
+};
+
+// NUEVO SISTEMA DE LIKES SIMPLE Y FUNCIONAL
+const darLike = async (req, res) => {
+  try {
+    const { comentarioId } = req.params;
+    const usuarioId = req.usuario._id;
+
+    console.log('👍 DAR LIKE:', { comentarioId, usuarioId: usuarioId.toString() });
+
+    // Buscar producto y comentario
+    const producto = await Producto.findOne({ 'comentarios._id': comentarioId });
+    if (!producto) {
+      return res.status(404).json({ mensaje: 'Comentario no encontrado' });
+    }
+
+    const comentario = producto.comentarios.id(comentarioId);
+    if (!comentario.likesSimples) comentario.likesSimples = [];
+
+    // Verificar si ya dio like
+    const yaLike = comentario.likesSimples.includes(usuarioId.toString());
+
+    if (yaLike) {
+      // Quitar like
+      comentario.likesSimples = comentario.likesSimples.filter(id => id !== usuarioId.toString());
+      console.log('❌ Like removido');
+    } else {
+      // Agregar like
+      comentario.likesSimples.push(usuarioId.toString());
+      console.log('✅ Like agregado');
+    }
+
+    // Guardar
+    producto.markModified('comentarios');
+    await producto.save();
+
+    const response = {
+      mensaje: yaLike ? 'Like removido' : 'Like agregado',
+      likes: comentario.likesSimples.length,
+      userLiked: !yaLike
+    };
+
+    console.log('✅ RESPUESTA LIKE:', response);
+    res.json(response);
+
+  } catch (error) {
+    console.error('❌ Error en like:', error);
+    res.status(500).json({ mensaje: 'Error interno del servidor' });
   }
 };
 
@@ -460,5 +466,6 @@ module.exports = {
   editarComentario,
   eliminarComentario,
   toggleLike,
-  toggleDislike
+  toggleDislike,
+  darLike
 };
