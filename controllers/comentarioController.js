@@ -1,86 +1,75 @@
 const Producto = require('../models/Producto');
 const Usuario = require('../models/usuarioModel');
 
-// Obtener comentarios de un producto - CON MIGRACIÓN
+// Obtener comentarios de un producto - VERSIÓN CON POPULATE MANUAL
 const obtenerComentarios = async (req, res) => {
   try {
     const { productoId } = req.params;
     console.log('🔍 Obteniendo comentarios para producto:', productoId);
 
+    // Buscar producto sin populate primero
     const producto = await Producto.findById(productoId);
 
-    // Obtener usuarios manualmente para asegurar que funcione
-    const usuarioIds = producto.comentarios.map(c => c.usuario).filter(Boolean);
-    const usuarios = await Usuario.find({ _id: { $in: usuarioIds } });
-    const usuariosMap = {};
-    usuarios.forEach(u => {
-      usuariosMap[u._id.toString()] = u;
-    });
-
     if (!producto) {
+      console.log('❌ Producto no encontrado');
       return res.status(404).json({ mensaje: 'Producto no encontrado' });
     }
 
-    // NOTA: Migración eliminada - los campos likes/dislikes deben existir en el esquema
+    console.log(`✅ Producto encontrado con ${producto.comentarios?.length || 0} comentarios`);
 
-    // MIGRACIÓN AUTOMÁTICA: Agregar likesSimples a comentarios que no lo tienen
-    let needsSave = false;
-    producto.comentarios.forEach(c => {
-      if (c.likesSimples === undefined) { // Solo si realmente no existe
-        c.likesSimples = [];
-        needsSave = true;
-      }
+    // Obtener IDs únicos de usuarios
+    const usuarioIds = [...new Set(producto.comentarios.map(c => c.usuario.toString()))];
+    console.log('👥 IDs de usuarios únicos:', usuarioIds);
+
+    // Buscar usuarios manualmente
+    const usuarios = await Usuario.find({ _id: { $in: usuarioIds } });
+    console.log(`👥 Usuarios encontrados: ${usuarios.length}`);
+
+    // Crear mapa de usuarios para acceso rápido
+    const usuarioMap = {};
+    usuarios.forEach(u => {
+      usuarioMap[u._id.toString()] = {
+        _id: u._id,
+        nombre: u.nombre,
+        email: u.email,
+        avatarPredeterminado: u.avatarPredeterminado,
+        imagenPerfil: u.imagenPerfil
+      };
     });
 
-    if (needsSave) {
-      producto.markModified('comentarios');
-      await producto.save();
-      console.log('🔄 MIGRACIÓN: Campo likesSimples agregado a comentarios');
-    }
+    // NO INICIALIZAR AUTOMÁTICAMENTE - Los likes/dislikes se manejan en las operaciones atómicas
 
-    const comentarios = producto.comentarios
-      .filter(c => c.usuario && c.texto && c.calificacion)
+    // Procesar comentarios con usuarios poblados manualmente
+    const comentarios = (producto.comentarios || [])
+      .filter(c => c.texto && c.calificacion)
       .map(c => {
-        // Asegurar que likes y dislikes existen
-        if (!c.likes) c.likes = [];
-        if (!c.dislikes) c.dislikes = [];
-        if (!c.likesSimples) c.likesSimples = []; // ASEGURAR CAMPO
+        const usuarioId = c.usuario.toString();
+        const usuarioData = usuarioMap[usuarioId];
 
-        const likesCount = c.likes.length;
-        const dislikesCount = c.dislikes.length;
-        const likesSimpleCount = c.likesSimples.length;
-        const usuario = usuariosMap[c.usuario.toString()];
+        console.log(`📝 Comentario: ${c.texto.substring(0, 20)}... - Usuario ID: ${usuarioId} - Encontrado: ${!!usuarioData}`);
 
-        console.log(`❤️ ${c._id}: likesSimples=${likesSimpleCount} likes`);
-        console.log(`👤 Usuario: ${usuario ? usuario.nombre : 'Usuario no encontrado'}`);
-        console.log(`🔍 Datos: likesSimples=${JSON.stringify(c.likesSimples)}`);
-
-        return {
+        const comentarioData = {
           _id: c._id,
           texto: c.texto,
           calificacion: c.calificacion,
           fecha: c.fecha,
           fechaEdicion: c.fechaEdicion,
-          likes: c.likes,
-          dislikes: c.dislikes,
-          likesSimples: c.likesSimples || [], // NUEVO CAMPO
-          usuario: usuario ? {
-            _id: usuario._id,
-            nombre: usuario.nombre,
-            email: usuario.email,
-            avatarPredeterminado: usuario.avatarPredeterminado,
-            imagenPerfil: usuario.imagenPerfil
-          } : {
-            _id: c.usuario,
-            nombre: 'Usuario no encontrado',
+          likes: c.likes || [],
+          dislikes: c.dislikes || [],
+          usuario: usuarioData || {
+            _id: 'usuario-anonimo',
+            nombre: 'Usuario anónimo',
             email: '',
             avatarPredeterminado: 'avatar1',
             imagenPerfil: null
           }
         };
+
+        console.log(`💖 Comentario ${c._id}: likes=${comentarioData.likes.length}, dislikes=${comentarioData.dislikes.length}`);
+        return comentarioData;
       });
 
-    console.log('✅ Comentarios encontrados:', comentarios.length);
+    console.log(`✅ Enviando ${comentarios.length} comentarios procesados`);
     res.json({ comentarios });
 
   } catch (error) {
@@ -283,13 +272,13 @@ const eliminarComentario = async (req, res) => {
   }
 };
 
-// Toggle like - VERSIÓN SIMPLE QUE FUNCIONA
+// Agregar like - SOLO AGREGAR, NO QUITAR AUTOMÁTICAMENTE
 const toggleLike = async (req, res) => {
   try {
     const { comentarioId } = req.params;
     const usuarioId = req.usuario._id;
 
-    console.log('🚀 LIKE SIMPLE:', { comentarioId, usuarioId: usuarioId.toString() });
+    console.log('❤️ Agregando like:', { comentarioId, usuarioId: usuarioId.toString() });
 
     // Buscar el producto
     const producto = await Producto.findOne({ 'comentarios._id': comentarioId });
@@ -302,47 +291,31 @@ const toggleLike = async (req, res) => {
       return res.status(404).json({ mensaje: 'Comentario no encontrado' });
     }
 
-    // Inicializar arrays si no existen
+    // Asegurar que el array existe
     if (!comentario.likes) comentario.likes = [];
-    if (!comentario.dislikes) comentario.dislikes = [];
 
-    // Toggle like
-    const yaLike = comentario.likes.some(id => id.toString() === usuarioId.toString());
+    // Verificar si ya le dio like
+    const yaLeDioLike = comentario.likes.some(id => id.toString() === usuarioId.toString());
 
-    if (yaLike) {
-      // Quitar like
-      comentario.likes = comentario.likes.filter(id => id.toString() !== usuarioId.toString());
-      console.log('✅ Like removido');
+    if (yaLeDioLike) {
+      // Ya le dio like, no hacer nada
+      return res.json({
+        mensaje: 'Ya le diste like a este comentario',
+        likes: comentario.likes.length,
+        userLiked: true
+      });
     } else {
-      // Agregar like y quitar dislike
+      // AGREGAR like
       comentario.likes.push(usuarioId);
-      comentario.dislikes = comentario.dislikes.filter(id => id.toString() !== usuarioId.toString());
-      console.log('✅ Like agregado');
+      await producto.save();
+      console.log('✅ Like agregado y guardado');
+
+      return res.json({
+        mensaje: 'Like agregado',
+        likes: comentario.likes.length,
+        userLiked: true
+      });
     }
-
-    // Guardar con markModified para forzar el guardado
-    producto.markModified('comentarios');
-    await producto.save();
-    console.log('✅ Producto guardado con markModified');
-
-    // Verificar que se guardó correctamente
-    const verificacion = await Producto.findOne({ 'comentarios._id': comentarioId });
-    const comentarioVerif = verificacion.comentarios.id(comentarioId);
-    console.log(`🔍 VERIFICACIÓN: likes guardados=${comentarioVerif.likes ? comentarioVerif.likes.length : 0}`);
-
-    const userLiked = comentario.likes.some(id => id.toString() === usuarioId.toString());
-    const userDisliked = comentario.dislikes.some(id => id.toString() === usuarioId.toString());
-
-    const response = {
-      mensaje: yaLike ? 'Like removido' : 'Like agregado',
-      likes: comentario.likes.length,
-      dislikes: comentario.dislikes.length,
-      userLiked,
-      userDisliked
-    };
-
-    console.log('✅ RESPUESTA SIMPLE:', response);
-    res.json(response);
 
   } catch (error) {
     console.error('❌ Error:', error);
@@ -411,61 +384,88 @@ const toggleDislike = async (req, res) => {
   }
 };
 
-// NUEVO SISTEMA DE LIKES SIMPLE Y FUNCIONAL
-const darLike = async (req, res) => {
+
+
+// Obtener comentarios de un producto específico
+const obtenerComentariosProducto = async (req, res) => {
+  try {
+    const { productoId } = req.params;
+
+    console.log('📋 Obteniendo comentarios para producto:', productoId);
+
+    const producto = await Producto.findById(productoId).populate('comentarios.usuario', 'nombre email imagenPerfil avatar');
+
+    if (!producto) {
+      return res.status(404).json({ mensaje: 'Producto no encontrado' });
+    }
+
+    console.log('✅ Comentarios encontrados:', producto.comentarios.length);
+    res.json(producto.comentarios);
+
+  } catch (error) {
+    console.error('❌ Error obteniendo comentarios:', error);
+    res.status(500).json({ mensaje: 'Error interno del servidor' });
+  }
+};
+
+// Quitar like - SOLO PARA CUANDO EL USUARIO QUIERA QUITARLO
+const quitarLike = async (req, res) => {
   try {
     const { comentarioId } = req.params;
     const usuarioId = req.usuario._id;
 
-    console.log('👍 DAR LIKE:', { comentarioId, usuarioId: usuarioId.toString() });
+    console.log('🗑️ Quitando like:', { comentarioId, usuarioId: usuarioId.toString() });
 
-    // Buscar producto y comentario
+    // Buscar el producto
     const producto = await Producto.findOne({ 'comentarios._id': comentarioId });
     if (!producto) {
       return res.status(404).json({ mensaje: 'Comentario no encontrado' });
     }
 
     const comentario = producto.comentarios.id(comentarioId);
-    if (!comentario.likesSimples) comentario.likesSimples = [];
-
-    // Verificar si ya dio like
-    const yaLike = comentario.likesSimples.includes(usuarioId.toString());
-
-    if (yaLike) {
-      // Quitar like
-      comentario.likesSimples = comentario.likesSimples.filter(id => id !== usuarioId.toString());
-      console.log('❌ Like removido');
-    } else {
-      // Agregar like
-      comentario.likesSimples.push(usuarioId.toString());
-      console.log('✅ Like agregado');
+    if (!comentario) {
+      return res.status(404).json({ mensaje: 'Comentario no encontrado' });
     }
 
-    // Guardar
-    producto.markModified('comentarios');
-    await producto.save();
+    // Asegurar que el array existe
+    if (!comentario.likes) comentario.likes = [];
 
-    const response = {
-      mensaje: yaLike ? 'Like removido' : 'Like agregado',
-      likes: comentario.likesSimples.length,
-      userLiked: !yaLike
-    };
+    // Verificar si le dio like
+    const yaLeDioLike = comentario.likes.some(id => id.toString() === usuarioId.toString());
 
-    console.log('✅ RESPUESTA LIKE:', response);
-    res.json(response);
+    if (!yaLeDioLike) {
+      // No le había dado like
+      return res.json({
+        mensaje: 'No le habías dado like a este comentario',
+        likes: comentario.likes.length,
+        userLiked: false
+      });
+    } else {
+      // QUITAR like
+      comentario.likes = comentario.likes.filter(id => id.toString() !== usuarioId.toString());
+      await producto.save();
+      console.log('✅ Like quitado y guardado');
+
+      return res.json({
+        mensaje: 'Like removido',
+        likes: comentario.likes.length,
+        userLiked: false
+      });
+    }
 
   } catch (error) {
-    console.error('❌ Error en like:', error);
+    console.error('❌ Error:', error);
     res.status(500).json({ mensaje: 'Error interno del servidor' });
   }
 };
 
 module.exports = {
   obtenerComentarios,
+  obtenerComentariosProducto,
   crearComentario,
   editarComentario,
   eliminarComentario,
   toggleLike,
-  toggleDislike,
-  darLike
+  quitarLike,
+  toggleDislike
 };

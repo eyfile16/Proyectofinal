@@ -17,13 +17,13 @@ router.put('/:comentarioId', validarJWT, comentarioController.editarComentario);
 // Eliminar comentario (requiere autenticación)
 router.delete('/:comentarioId', validarJWT, comentarioController.eliminarComentario);
 
-// Dar like/unlike a un comentario (requiere autenticación)
+// Dar like a un comentario (requiere autenticación)
 router.post('/:comentarioId/like', validarJWT, comentarioController.toggleLike);
+
+// Quitar like de un comentario (requiere autenticación)
+router.delete('/:comentarioId/like', validarJWT, comentarioController.quitarLike);
 
 // Dar dislike/undislike a un comentario (requiere autenticación)
 router.post('/:comentarioId/dislike', validarJWT, comentarioController.toggleDislike);
-
-// NUEVO SISTEMA DE LIKES SIMPLE
-router.post('/:comentarioId/like-simple', validarJWT, comentarioController.darLike);
 
 module.exports = router;

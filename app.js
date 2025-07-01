@@ -4,7 +4,15 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const mongoose = require('mongoose');
+const cloudinary = require('cloudinary').v2;
 require('dotenv').config();
+
+// Configurar Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'dxkufsejm',
+  api_key: process.env.CLOUDINARY_API_KEY || '738728374465937',
+  api_secret: process.env.CLOUDINARY_API_SECRET || 'YOUR_API_SECRET'
+});
 
 // Importar rutas
 const productosRoutes = require('./routes/productos');

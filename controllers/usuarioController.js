@@ -3,6 +3,7 @@ const Usuario = require('../models/usuarioModel'); // Cambiado de '../models/Usu
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const cloudinary = require('cloudinary').v2;
 
 // Configuración de multer para subida de imágenes
 const storage = multer.diskStorage({
@@ -126,10 +127,12 @@ const actualizarAvatar = async (req, res) => {
   }
 };
 
-// Subir imagen de perfil
+// Subir imagen de perfil (SIMPLE - BASE64)
 const subirImagenPerfil = async (req, res) => {
-  // Usar multer middleware
-  upload.single('imagen')(req, res, async function (err) {
+  // Usar multer para memoria
+  const uploadMemory = multer({ storage: multer.memoryStorage() });
+
+  uploadMemory.single('imagen')(req, res, async function (err) {
     if (err) {
       console.error('Error en multer:', err);
       return res.status(400).json({ mensaje: err.message });
@@ -142,29 +145,18 @@ const subirImagenPerfil = async (req, res) => {
         return res.status(400).json({ mensaje: 'No se recibió ningún archivo' });
       }
 
-      console.log('Subiendo imagen para usuario:', usuarioId);
-      console.log('Archivo recibido:', req.file.filename);
+      console.log('Guardando imagen como base64 para usuario:', usuarioId);
 
-      // Construir URL de la imagen
-      const imagenUrl = `/uploads/avatars/${req.file.filename}`;
+      // Convertir a base64 y guardar directamente
+      const base64Image = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
 
-      // Obtener usuario actual para eliminar imagen anterior si existe
-      const usuarioActual = await Usuario.findById(usuarioId);
+      console.log('Imagen convertida a base64, tamaño:', base64Image.length);
 
-      // Eliminar imagen anterior si existe
-      if (usuarioActual.imagenPerfil) {
-        const imagenAnterior = path.join(__dirname, '../', usuarioActual.imagenPerfil);
-        if (fs.existsSync(imagenAnterior)) {
-          fs.unlinkSync(imagenAnterior);
-          console.log('Imagen anterior eliminada:', imagenAnterior);
-        }
-      }
-
-      // Actualizar usuario con nueva imagen
+      // Actualizar usuario con la imagen base64
       const usuarioActualizado = await Usuario.findByIdAndUpdate(
         usuarioId,
         {
-          imagenPerfil: imagenUrl,
+          imagenPerfil: base64Image,
           avatarPredeterminado: null // Limpiar avatar predeterminado
         },
         { new: true }
@@ -174,7 +166,7 @@ const subirImagenPerfil = async (req, res) => {
         return res.status(404).json({ mensaje: 'Usuario no encontrado' });
       }
 
-      console.log('Imagen subida exitosamente');
+      console.log('Imagen guardada exitosamente como base64');
 
       res.json({
         mensaje: 'Imagen de perfil actualizada correctamente',
@@ -183,7 +175,7 @@ const subirImagenPerfil = async (req, res) => {
 
     } catch (error) {
       console.error('Error al subir imagen:', error);
-      res.status(500).json({ mensaje: 'Error al subir imagen' });
+      res.status(500).json({ mensaje: 'Error al subir imagen: ' + error.message });
     }
   });
 };
@@ -262,7 +254,6 @@ const obtenerResenasUsuario = async (req, res) => {
     console.log('Obteniendo reseñas para usuario ID:', id);
 
     // Primero buscar el usuario para obtener su nombre
-    const Usuario = require('../models/usuarioModel');
     const usuario = await Usuario.findById(id);
 
     if (!usuario) {
@@ -331,6 +322,38 @@ const obtenerResenasUsuario = async (req, res) => {
   }
 };
 
+// Limpiar imagen de perfil rota
+const limpiarImagenPerfil = async (req, res) => {
+  try {
+    const usuarioId = req.usuario._id;
+    console.log('Limpiando imagen de perfil rota para usuario:', usuarioId);
+
+    // Actualizar usuario removiendo la imagen de perfil
+    const usuarioActualizado = await Usuario.findByIdAndUpdate(
+      usuarioId,
+      {
+        $unset: { imagenPerfil: 1 },
+        $set: { avatarPredeterminado: 'avatar1' }
+      },
+      { new: true }
+    ).select('-password');
+
+    if (!usuarioActualizado) {
+      return res.status(404).json({ mensaje: 'Usuario no encontrado' });
+    }
+
+    console.log('Imagen de perfil limpiada exitosamente');
+
+    res.json({
+      mensaje: 'Imagen de perfil limpiada correctamente',
+      usuario: usuarioActualizado
+    });
+  } catch (error) {
+    console.error('Error al limpiar imagen de perfil:', error);
+    res.status(500).json({ mensaje: 'Error al limpiar imagen de perfil' });
+  }
+};
+
 module.exports = {
   obtenerTodos,
   obtenerUsuarioPorId,
@@ -338,6 +361,7 @@ module.exports = {
   actualizarAvatar,
   subirImagenPerfil,
   eliminarImagenPerfil,
+  limpiarImagenPerfil,
   eliminarCuenta,
   obtenerResenasUsuario
 };

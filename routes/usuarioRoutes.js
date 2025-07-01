@@ -23,6 +23,10 @@ router.post('/subir-imagen', validarJWT, usuarioController.subirImagenPerfil);
 // Esta ruta será accesible como /api/usuarios/eliminar-imagen
 router.delete('/eliminar-imagen', validarJWT, usuarioController.eliminarImagenPerfil);
 
+// Ruta para limpiar imagen de perfil rota (requiere autenticación)
+// Esta ruta será accesible como /api/usuarios/limpiar-imagen
+router.put('/limpiar-imagen', validarJWT, usuarioController.limpiarImagenPerfil);
+
 // Ruta para eliminar cuenta (requiere autenticación)
 // Esta ruta será accesible como /api/usuarios/eliminar
 router.delete('/eliminar', validarJWT, usuarioController.eliminarCuenta);
